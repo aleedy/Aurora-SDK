@@ -18,7 +18,6 @@ class StereoDelay {
 		void Init(){
 			stereoDelayLine[0].Init();
 			stereoDelayLine[1].Init();
-            SetDelay(maxDelaySamples);
 		};
 		void SetDelay(float delay) {
 			stereoDelayLine[0].SetDelay(delay);
@@ -32,13 +31,11 @@ class StereoDelay {
 			stereoDelayLine[0].Write(sample.left);
 			stereoDelayLine[1].Write(sample.right);
 		};
-        size_t getMaxDelaySamples() {
-            return maxDelaySamples;
-        }
 		StereoSample Read(float delay) {
 			return {
 				stereoDelayLine[0].Read(delay),
 				stereoDelayLine[1].Read(delay),
 			};
 		};
+	
 };
