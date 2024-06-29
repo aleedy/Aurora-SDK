@@ -12,23 +12,43 @@ using namespace daisysp;
 /** Our global hardware object */
 Hardware hw;
 
-StereoDelay stereoDelay;
+const int MAX_DELAY_LINES = 2;
+StereoDelay stereoDelay[MAX_DELAY_LINES];
 float timeDeadZone = .005;
-float smoothTime = 0.01;
+float smoothTime[MAX_DELAY_LINES] = {0.0f, 0.0f};
+int numDelayLines = 0;
 
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size)
 {
 
 	/** This filters, and prepares all of the module's controls for us. */
 	hw.ProcessAllControls();
+	bool state = hw.GetButton(SW_REVERSE).Pressed();
+	if (state) {
+		numDelayLines = (numDelayLines+1) % MAX_DELAY_LINES;
+	}
+	
+	switch (numDelayLines) {
+		case 0 :
+			hw.SetLed(LED_REVERSE, 0.0f, 0.0f, 1.0f);
+			break;
+		case 1: 
+			hw.SetLed(LED_REVERSE, 0.0f, 1.0f, 0.0f);
+			break;
+		default: 
+			hw.SetLed(LED_REVERSE, 1.0f, 0.0f, 0.0f);
+			break;
+	}
 
-	float delayTime = hw.GetKnobValue(KNOB_TIME);
+	float delayTime0 =  fmap(hw.GetKnobValue(KNOB_TIME) + hw.GetCvValue(CV_TIME), 0.0, 1.0, Mapping::LINEAR);
+	float delayTime1 =  fmap(hw.GetKnobValue(KNOB_TIME) + hw.GetCvValue(CV_TIME), 0.0, 0.5, Mapping::LINEAR);
 	float feedback = hw.GetKnobValue(KNOB_REFLECT);
 	float send = hw.GetKnobValue(KNOB_BLUR);
 	float mix = hw.GetKnobValue(KNOB_MIX);
 	float dryLeft, dryRight, wetLeft, wetRight;
 
-	hw.SetLed(LED_1, delayTime, 0.0f, 0.0f);
+	hw.SetLed(LED_3, delayTime0, 0.0f, 1.0f);
+	hw.SetLed(LED_4, delayTime1, 0.0f, 1.0f);
 	hw.WriteLeds();
 
 	/** Loop through each sample of audio */
@@ -37,18 +57,30 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 
 		dryLeft = in[0][i];
 		dryRight = in[1][i];
-		if(std::abs(smoothTime-delayTime)>timeDeadZone) {
-        	fonepole(smoothTime, delayTime, 0.0001f);
+		if(std::abs(smoothTime[0]-delayTime0)>timeDeadZone) {
+        	fonepole(smoothTime[0], delayTime0, 0.0001f);
+		}
+		float delayPosition0 = maxDelaySamples*smoothTime[0];
+
+		if(std::abs(smoothTime[1]-delayTime1)>timeDeadZone) {
+        	fonepole(smoothTime[1], delayTime1, 0.0001f);
+		}
+		float delayPosition1 = maxDelaySamples*smoothTime[1];
+
+		StereoSample wetSample[2] = {
+			stereoDelay[0].Read(delayPosition0),
+			stereoDelay[1].Read(delayPosition1),
+		};
+		
+		wetLeft = wetSample[0].left;
+		wetRight = wetSample[0].right;
+		if (numDelayLines+1 == 2) {
+			wetLeft = wetLeft + wetSample[1].left;
+			wetRight = wetRight +  wetSample[1].right;
 		}
 
-
-		float delayPosition0 = maxDelaySamples*smoothTime;
-		StereoSample wetSample = stereoDelay.Read(delayPosition0);
-		
-		wetLeft = wetSample.left;
-		wetRight = wetSample.right;
-
-		stereoDelay.Write(dryLeft*send + wetLeft*feedback, dryRight*send + wetRight*feedback);
+		stereoDelay[0].Write(dryLeft*send + wetSample[0].left*feedback, dryRight*send + wetSample[0].right*feedback);
+		stereoDelay[1].Write(dryLeft*send + wetSample[1].left*feedback, dryRight*send + wetSample[1].right*feedback);
 
 	// 	/** Left Channel */
 		out[0][i] = (dryLeft*(1-mix) + wetLeft*mix);
@@ -62,8 +94,10 @@ int main(void)
 {
 	/** Initialize the Hardware */
 	hw.Init();
-	stereoDelay.Init();
-	stereoDelay.SetDelay(maxDelaySamples);
+	stereoDelay[0].Init();
+	stereoDelay[0].SetDelay(maxDelaySamples);
+	stereoDelay[1].Init();
+	stereoDelay[1].SetDelay(maxDelaySamples);
 	hw.SetLed(LED_FREEZE, 0.5f, 0.0f, 0.5f);
 	hw.WriteLeds();
 
