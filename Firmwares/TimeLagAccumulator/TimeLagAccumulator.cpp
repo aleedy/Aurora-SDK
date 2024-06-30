@@ -17,6 +17,7 @@ StereoDelay stereoDelay[MAX_DELAY_LINES];
 float timeDeadZone = .005;
 float smoothTime[MAX_DELAY_LINES] = {0.0f, 0.0f};
 int numDelayLines = 0;
+int delayLineEnabled[MAX_DELAY_LINES];
 
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size)
 {
@@ -26,6 +27,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 	bool state = hw.GetButton(SW_REVERSE).Pressed();
 	if (state) {
 		numDelayLines = (numDelayLines+1) % MAX_DELAY_LINES;
+	}
+	for (int i = 0; i < MAX_DELAY_LINES; i++) {
+		if(i <= numDelayLines) {
+			delayLineEnabled[i] = 1;
+		} else {
+			delayLineEnabled[i] = 0; 
+		}
 	}
 	
 	switch (numDelayLines) {
@@ -40,15 +48,17 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 			break;
 	}
 
-	float delayTime0 =  fmap(hw.GetKnobValue(KNOB_TIME) + hw.GetCvValue(CV_TIME), 0.0, 1.0, Mapping::LINEAR);
-	float delayTime1 =  fmap(hw.GetKnobValue(KNOB_TIME) + hw.GetCvValue(CV_TIME), 0.0, 0.5, Mapping::LINEAR);
+	float delayTime[2] = {
+		fmap(hw.GetKnobValue(KNOB_TIME), 0.0, 1.0, Mapping::LINEAR),
+		fmap(hw.GetKnobValue(KNOB_TIME), 0.0, 0.5, Mapping::LINEAR),
+	};
 	float feedback = hw.GetKnobValue(KNOB_REFLECT);
 	float send = hw.GetKnobValue(KNOB_BLUR);
 	float mix = hw.GetKnobValue(KNOB_MIX);
 	float dryLeft, dryRight, wetLeft, wetRight;
 
-	hw.SetLed(LED_3, delayTime0, 0.0f, 1.0f);
-	hw.SetLed(LED_4, delayTime1, 0.0f, 1.0f);
+	hw.SetLed(LED_3, delayTime[0], 0.0f, 1.0f);
+	hw.SetLed(LED_4, delayTime[1], 0.0f, 1.0f);
 	hw.WriteLeds();
 
 	/** Loop through each sample of audio */
@@ -57,13 +67,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 
 		dryLeft = in[0][i];
 		dryRight = in[1][i];
-		if(std::abs(smoothTime[0]-delayTime0)>timeDeadZone) {
-        	fonepole(smoothTime[0], delayTime0, 0.0001f);
+		if(std::abs(smoothTime[0]-delayTime[0])>timeDeadZone) {
+        	fonepole(smoothTime[0], delayTime[0], 0.0001f);
 		}
 		float delayPosition0 = maxDelaySamples*smoothTime[0];
 
-		if(std::abs(smoothTime[1]-delayTime1)>timeDeadZone) {
-        	fonepole(smoothTime[1], delayTime1, 0.0001f);
+		if(std::abs(smoothTime[1]-delayTime[1])>timeDeadZone) {
+        	fonepole(smoothTime[1], delayTime[1], 0.0001f);
 		}
 		float delayPosition1 = maxDelaySamples*smoothTime[1];
 
@@ -72,12 +82,8 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 			stereoDelay[1].Read(delayPosition1),
 		};
 		
-		wetLeft = wetSample[0].left;
-		wetRight = wetSample[0].right;
-		if (numDelayLines+1 == 2) {
-			wetLeft = wetLeft + wetSample[1].left;
-			wetRight = wetRight +  wetSample[1].right;
-		}
+		wetLeft = wetSample[0].left*delayLineEnabled[0] + wetSample[1].left*delayLineEnabled[1];
+		wetRight = wetSample[0].right*delayLineEnabled[0] + wetSample[1].right*delayLineEnabled[1];
 
 		stereoDelay[0].Write(dryLeft*send + wetSample[0].left*feedback, dryRight*send + wetSample[0].right*feedback);
 		stereoDelay[1].Write(dryLeft*send + wetSample[1].left*feedback, dryRight*send + wetSample[1].right*feedback);
